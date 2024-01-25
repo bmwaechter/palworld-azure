@@ -1,0 +1,201 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "serverName": {
+            "type": "string",
+            "metadata": {
+                "description": "must be only lowercase letters, digits and dashes"
+            }
+        },
+        "location": {
+            "type": "string",
+            "metadata": {
+                "description": "azure region to host the server and storage"
+            }
+        },
+        "serverPassword": {
+            "type": "securestring",
+            "metadata": {
+                "description": "Password to enter the world"
+            }
+        },
+        "timeZone": {
+            "type": "string",
+            "defaultValue": "America/New_York",
+            "metadata": {
+                "description": "Time zone for the server clock (https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)"
+            }
+        },
+        "friendlyName": {
+            "type": "string",
+            "defaultValue": "[parameters('serverName')]",
+            "metadata": {
+                "description": "a friendly name for the server, not restricted by other naming rules"
+            }
+        },
+        "serverDnsLabel": {
+            "type": "string",
+            "defaultValue": "[parameters('serverName')]",
+            "metadata": {
+                "description": "dns lablel for the server"
+            }
+        },
+        "serverDescription": {
+            "type": "string",
+            "metadata": {
+                "description": "description"
+            }
+        }
+    },
+    "variables": {
+        "storageAccountName": "[concat('palworld', uniqueString(resourceGroup().id))]",
+        "serverShareName": "server",
+        "logShareName": "logs"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Storage/storageAccounts",
+            "apiVersion": "2021-01-01",
+            "name": "[variables('storageAccountName')]",
+            "location": "[parameters('location')]",
+            "sku": {
+                "name": "Standard_ZRS",
+                "tier": "Standard"
+            },
+            "kind": "StorageV2",
+            "properties": {
+                "accessTier": "Hot"
+            },
+            "resources": [
+                {
+                    "type": "Microsoft.Storage/storageAccounts/fileServices/shares",
+                    "apiVersion": "2020-08-01-preview",
+                    "name": "[concat(variables('storageAccountName'), '/default/', variables('serverShareName'))]",
+                    "dependsOn": [
+                        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+                    ]
+                },
+                {
+                    "type": "Microsoft.Storage/storageAccounts/fileServices/shares",
+                    "apiVersion": "2020-08-01-preview",
+                    "name": "[concat(variables('storageAccountName'), '/default/', variables('logShareName'))]",
+                    "dependsOn": [
+                        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "Microsoft.ContainerInstance/containerGroups",
+            "apiVersion": "2020-11-01",
+            "name": "[parameters('serverName')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+            ],
+            "location": "eastus",
+            "properties": {
+                "sku": "Standard",
+                "containers": [
+                    {
+                        "name": "[parameters('serverName')]",
+                        "properties": {
+                            "image": "jammsen/palworld-dedicated-server:latest",
+                            "ports": [
+                                {
+                                    "protocol": "UDP",
+                                    "port": 8211
+                                },
+                                {
+                                    "protocol": "UDP",
+                                    "port": 25575
+                                }
+                            ],
+                            "environmentVariables": [
+                                {
+                                    "name": "PUBLIC_PORT",
+                                    "value": "8211"
+                                },
+                                {
+                                    "name": "SERVER_NAME",
+                                    "value": "[parameters('friendlyName')]"
+                                },
+                                {
+                                    "name": "SERVER_PASSWORD",
+                                    "value": "[parameters('serverPassword')]"
+                                },
+                                 {
+                                    "name": "ADMIN_PASSWORD",
+                                    "value": "[parameters('serverPassword')]"
+                                },
+                                {
+                                
+                                    "name": "TIMEZONE",
+                                    "value": "[parameters('timeZone')]"
+                                },
+                                {
+                                    "name": "SERVER_DESCRIPTION",
+                                    "value": "[parameters('serverDescription')]"
+                                },
+                                {
+                                    "name": "PUBLIC_IP",
+                                    "value": ""
+                                }
+                            ],
+                            "resources": {
+                                "requests": {
+                                    "memoryInGB": 16,
+                                    "cpu": 8
+                                }
+                            },
+                            "volumeMounts": [
+                                {
+                                    "name": "[variables('serverShareName')]",
+                                    "mountPath": "/palworld"
+                                },
+                                                                {
+                                    "name": "[variables('logShareName')]",
+                                    "mountPath": "/home/steam/Steam/logs"
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "restartPolicy": "Always",
+                "ipAddress": {
+                    "ports": [
+                        {
+                            "protocol": "UDP",
+                            "port": 8211
+                        },
+                        {
+                            "protocol": "UDP",
+                            "port": 25575
+                        }
+                    ],
+                    "type": "Public",
+                    "dnsNameLabel": "[parameters('serverDnsLabel')]"
+                },
+                "osType": "Linux",
+                "volumes": [
+                    {
+                        "name": "[variables('serverShareName')]",
+                        "azureFile": {
+                            "shareName": "[variables('serverShareName')]",
+                            "storageAccountName": "[variables('storageAccountName')]",
+                            "storageAccountKey": "[listKeys(variables('storageAccountName'), '2017-10-01').keys[0].value]"
+                        }
+                    },
+                    {
+                        "name": "[variables('logShareName')]",
+                        "azureFile": {
+                            "shareName": "[variables('logShareName')]",
+                            "storageAccountName": "[variables('storageAccountName')]",
+                            "storageAccountKey": "[listKeys(variables('storageAccountName'), '2017-10-01').keys[0].value]"
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}
